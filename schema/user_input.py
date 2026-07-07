@@ -38,7 +38,7 @@ class UserInput(BaseModel):
     @computed_field
     @property
     def bmi(self) -> float:
-        return self.weight/(self.height**2)
+        return self.weight/ ((self.height/100)**2)
 
 
     @computed_field
