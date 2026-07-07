@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -7,7 +7,7 @@ import pandas as pd
 
 
 
-from schema.user_input import UserInput
+from schema.user_input import UserInput, PaymentCreate, StepBatch
 from ml_model.predict import predict_and_explain, MODEL_VERSION, CompareRequest
 from schema.role import RoleUpdate
 from schema.prediction_response import PredictionResponse
@@ -26,8 +26,18 @@ from fastapi.responses import StreamingResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 import io
+import os
 
 from sqlalchemy import func
+
+import hmac, hashlib
+
+import razorpay
+
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "your_key_id")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "fallback_secret_if_missing")
+
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -386,3 +396,139 @@ async def delete_user(
     await db.commit()
     return {"message": f"User {user.email} deleted"}
 
+# payment api design
+@app.post("/payments/create")
+async def create_payment(data: PaymentCreate, db: AsyncSession = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    order = razorpay_client.order.create({
+        "amount": data.amount, "currency": "INR", "payment_capture": 1
+    })
+    payment = Payment(user_id=current_user.id, amount=data.amount,
+                       provider_order_id=order["id"], status=PaymentStatus.PENDING)
+    db.add(payment)
+    await db.commit()
+    return {"order_id": order["id"], "amount": data.amount, "key": RAZORPAY_KEY_ID}
+
+@app.get("/payments/{payment_id}")
+async def get_payment_status(payment_id: int, db: AsyncSession = Depends(get_db),
+                              current_user: User = Depends(get_current_user)):
+    # ownership check like your other GETs, return current .status
+    result = await db.execute(select(Payment).filter(Payment.id == payment_id))
+    payment = result.scalars().first()
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if payment.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to view this payment")
+
+    return {
+        "id": payment.id,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "status": payment.status,
+        "created_at": payment.created_at,
+    }
+
+@app.post("/payments/webhook")
+async def payment_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    # 1. verify signature (critical — don't trust unsigned webhook bodies)
+    # 2. look up Payment by provider_order_id
+    # 3. update .status based on event type, set provider_payment_id
+    # 4. return 200 quickly
+    body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    expected_signature = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    payload = await request.json()
+    event = payload.get("event")
+    entity = payload["payload"]["payment"]["entity"]
+    order_id = entity.get("order_id")
+
+    result = await db.execute(select(Payment).filter(Payment.provider_order_id == order_id))
+    payment = result.scalars().first()
+
+    if not payment:
+        # Don't 404/500 here — provider will retry forever. Log and 200.
+        return JSONResponse(status_code=200, content={"message": "order not found, ignored"})
+
+    if event == "payment.captured":
+        payment.status = PaymentStatus.SUCCEEDED
+        payment.provider_payment_id = entity["id"]
+    elif event == "payment.failed":
+        payment.status = PaymentStatus.FAILED
+    elif event == "refund.processed":
+        payment.status = PaymentStatus.REFUNDED
+
+    await db.commit()
+    return {"message": "ok"}
+
+# POST /steps/log — client sends incremental step counts periodically
+@app.post("/steps/log")
+async def log_steps(
+    payload: StepBatch,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    target_date = payload.date or date.today()
+
+    result = await db.execute(
+        select(StepLog).filter(
+            StepLog.user_id == current_user.id,
+            StepLog.date == target_date
+        )
+    )
+    existing = result.scalars().first()
+
+    if existing:
+        existing.steps += payload.steps
+        existing.recorded_at = datetime.utcnow()
+    else:
+        existing = StepLog(
+            user_id=current_user.id,
+            steps=payload.steps,
+            date=target_date
+        )
+        db.add(existing)
+
+    await db.commit()
+    await db.refresh(existing)
+    return {"date": existing.date, "total_steps": existing.steps}
+
+
+# GET /steps/today
+@app.get("/steps/today")
+async def get_today_steps(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(StepLog).filter(
+            StepLog.user_id == current_user.id,
+            StepLog.date == date.today()
+        )
+    )
+    log = result.scalars().first()
+    return {"date": date.today(), "steps": log.steps if log else 0}
+
+
+# GET /steps/me — history, like /predictions/me
+@app.get("/steps/me")
+async def get_my_steps(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(StepLog)
+        .filter(StepLog.user_id == current_user.id)
+        .order_by(StepLog.date.desc())
+    )
+    return result.scalars().all()

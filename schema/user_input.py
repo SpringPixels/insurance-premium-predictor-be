@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, computed_field, field_validator
-from typing import Literal, Annotated
+from typing import Literal, Annotated, Optional
 from config.city_tier import tier_1_cities, tier_2_cities
 
 
@@ -75,5 +75,9 @@ class UserInput(BaseModel):
         else: 
             return 3
 
+class PaymentCreate(BaseModel):
+    amount: int  # Razorpay amounts are usually passed in paise (integers)
 
-
+class StepBatch(BaseModel):
+    steps: int
+    date: Optional[date] = None  # defaults to today if not sen

@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, ForeignKey
+from enum import Enum
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, ForeignKey, Enum as SQLEnum, Date
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, date as py_date
 from config.database import Base
 
 class PredictionLog(Base):
@@ -31,3 +32,36 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     predictions = relationship("PredictionLog", back_populates="user")
+
+
+
+class PaymentStatus(str, Enum):
+    CREATED = "created"       # order created, no payment attempt yet
+    PENDING = "pending"       # payment intent created, awaiting user action
+    PROCESSING = "processing" # provider is processing (e.g. bank auth)
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    REFUNDED = "refunded"
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    prediction_id = Column(Integer, ForeignKey("prediction_logs.id"), nullable=True)
+    amount = Column(Integer)  # store in paise/cents, never float
+    currency = Column(String, default="INR")
+    status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.CREATED)
+    provider_order_id = Column(String, nullable=True)   # e.g. Razorpay order id
+    provider_payment_id = Column(String, nullable=True) # set once payment succeeds
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+class StepLog(Base):
+    __tablename__ = "step_logs"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    steps = Column(Integer, nullable=False)
+    recorded_at = Column(DateTime, default=datetime.utcnow)  # when batch was synced
+    
+    date = Column(Date, default=py_date.today) # day the steps belong to
