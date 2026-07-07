@@ -74,3 +74,6 @@ class UserInput(BaseModel):
             return 2
         else: 
             return 3
+
+
+

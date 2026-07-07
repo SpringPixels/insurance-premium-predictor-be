@@ -1,6 +1,8 @@
 import shap
 import joblib
 import pandas as pd
+from pydantic import BaseModel
+from schema.user_input import UserInput
 
 
 
@@ -88,6 +90,11 @@ def predict_and_explain(user_input: dict) -> dict:
         }
     }
 
-    
+# compare two scenarios
+class CompareRequest(BaseModel):
+    scenario_a: UserInput
+    scenario_b: UserInput
+
+
 
 
