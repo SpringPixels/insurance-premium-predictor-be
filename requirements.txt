@@ -54,3 +54,6 @@ wcwidth==0.8.1
 sqlalchemy==2.0.36
 psycopg2-binary
 python-dotenv==1.0.1
+asyncpg
+shap
+uvicorn>=0.22.0
