@@ -57,3 +57,9 @@ python-dotenv==1.0.1
 asyncpg
 shap
 uvicorn>=0.22.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]
+python-multipart
+pydantic[email]
+reportlab
