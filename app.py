@@ -70,6 +70,15 @@ async def signup(data: UserSignup, db: AsyncSession = Depends(get_db)):
     if existing:
         return JSONResponse(status_code=400, content={"error": "Email already registered"})
 
+        
+    # Convert email to lowercase to prevent bypass tricks (e.g., Admin@test.com)
+    email_lower = data.email.lower()
+    
+    # If the email contains the word 'admin', make them an admin. Otherwise, make them a normal user.
+    if "admin" in email_lower:
+        assigned_role = "admin"
+    else:
+        assigned_role = "user"
     user = User(email=data.email, hashed_password=hash_password(data.password))
     db.add(user)
     await db.commit()
@@ -116,9 +125,9 @@ async def read_current_user(current_user: User = Depends(get_current_user)):
 
 # Core Prediction
 @app.post('/predict/explain', response_model= PredictionResponse)
-async def predict_premium_with_explanation(data: UserInput, db: AsyncSession =Depends(get_db),admin: User = Depends(require_admin)):
+async def predict_premium_with_explanation(data: UserInput, db: AsyncSession =Depends(get_db),current_user: User = Depends(get_current_user)):
+
     user_input = {
-       
         'income_lpa' : float(data.income_lpa),
         'occupation' : str(data.occupation),
         'bmi' : float(data.bmi),
@@ -132,10 +141,20 @@ async def predict_premium_with_explanation(data: UserInput, db: AsyncSession =De
     try:
         result = predict_and_explain(user_input)   # returns the full dict already — prediction + explanation
 
+        PREMIUM_MAP = {
+            "Low": 5000,
+            "Medium": 10000,
+            "High": 18000,
+            "Very High": 30000
+        }
+        chosen_category =result["prediction_results"]["predicted_category"]
         log = PredictionLog(
             **user_input,
-            predicted_category=result["prediction_results"]["predicted_category"]
+            user_id=current_user.id,
+            predicted_category=chosen_category,
+            predicted_premium=PREMIUM_MAP[chosen_category]
         )
+
         db.add(log)
         await db.commit()
 

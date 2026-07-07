@@ -15,9 +15,10 @@ class PredictionLog(Base):
     lifestyle_risk = Column(String)
     city_tier = Column(Integer)
     predicted_category = Column(String)
+    predicted_premium = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship("Users", back_populates="predictions")
+    user = relationship("User", back_populates="predictions")
 
 
 class User(Base):

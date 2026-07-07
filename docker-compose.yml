@@ -17,6 +17,7 @@ services:
       - db
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:7439466632@db:5432/insurance_db
+      SECRET_KEY: some-long-random-fixed-string-you-choose
 
 volumes:
   pgdata:
