@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
@@ -42,7 +43,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+# Define the origins that are allowed to make requests to your API
+origins = [
+    "http://localhost:4200",  # Default Angular dev server port
+]
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
 
 
 # human readable
@@ -70,7 +83,7 @@ async def signup(data: UserSignup, db: AsyncSession = Depends(get_db)):
     if existing:
         return JSONResponse(status_code=400, content={"error": "Email already registered"})
 
-        
+
     # Convert email to lowercase to prevent bypass tricks (e.g., Admin@test.com)
     email_lower = data.email.lower()
     
