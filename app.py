@@ -1,10 +1,28 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.responses import JSONResponse
-from schema.user_input import UserInput
-from ml_model.predict import predict_output, model, MODEL_VERSION
-from schema.prediction_response import PredictionResponse
+from sqlalchemy.orm import Session
+import pandas as pd
 
-app = FastAPI()
+
+from schema.user_input import UserInput
+from ml_model.predict import predict_and_explain, MODEL_VERSION
+from schema.prediction_response import PredictionResponse
+from config.database import Base, engine, get_db
+from ml_model.db_models import PredictionLog
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This securely runs your table creation asynchronously on startup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+# Pass the lifespan function to your FastAPI instance
+app = FastAPI(lifespan=lifespan)
+
+
+
 
 
 # human readable
@@ -25,8 +43,8 @@ def health_check():
 
 
 
-@app.post('/predict', response_model= PredictionResponse)
-def predict_premium(data: UserInput):
+@app.post('/predict/explain', response_model= PredictionResponse)
+def predict_premium_with_explanation(data: UserInput, db: Session =Depends(get_db)):
 
     user_input = {
        
@@ -38,14 +56,19 @@ def predict_premium(data: UserInput):
         'city_tier' : int(data.city_tier)
     }
 
+    
 
     try:
-    
-       prediction = predict_output([user_input])
+        result = predict_and_explain(user_input)   # returns the full dict already — prediction + explanation
 
-       return JSONResponse(status_code=200, content={'response': prediction})
+        log = PredictionLog(
+            **user_input,
+            predicted_category=result["prediction_results"]["predicted_category"]
+        )
+        db.add(log)
+        db.commit()
 
+        return JSONResponse(status_code=200, content=result)
 
     except Exception as e:
-
-        return JSONResponse(status_code=500, content=str(e))
+        return JSONResponse(status_code=500, content={"error": str(e)})
