@@ -3,4 +3,4 @@ __pycache__/
 *.pyc
 myenv/
 .vscode/
-*.pkl
+ml_model/*.pkl
