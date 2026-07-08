@@ -13,7 +13,7 @@ from ml_model.predict import predict_and_explain, MODEL_VERSION, CompareRequest
 from schema.role import RoleUpdate
 from schema.prediction_response import PredictionResponse
 from config.database import Base, engine, get_db
-from ml_model.db_models import PredictionLog
+from ml_model.db_models import PredictionLog, ContactUs
 from contextlib import asynccontextmanager
 
 from fastapi.security import OAuth2PasswordBearer
