@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,8 +113,16 @@ async def login(form_data:OAuth2PasswordRequestForm = Depends(), db: AsyncSessio
     if not user or not verify_password(form_data.password, user.hashed_password):
         return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
 
-    token = create_access_token({"sub": user.email, "role": user.role})
-    return {"access_token": token, "token_type": "bearer"}
+    token = create_access_token({"sub": user.email, "role": user.role, "full_name":user.full_name})
+    return {"access_token": token,
+            "token_type": "bearer", 
+            "user":{
+               "id":user.id,
+               "full_name":user.full_name,
+               "email":user.email,
+               "phone_no":user.phone_no,
+               "role":user.role
+            }}
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     try:
@@ -140,7 +149,7 @@ async def read_current_user(current_user: User = Depends(get_current_user)):
         "id":current_user.id,
         "full_name":current_user.full_name,
         "email":current_user.email,
-        "phone_no":current_phone_no,
+        "phone_no":current_user.phone_no,
         "role":current_user.role
     }
 

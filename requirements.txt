@@ -64,3 +64,4 @@ python-multipart
 pydantic[email]
 reportlab
 razorpay
+greenlet
