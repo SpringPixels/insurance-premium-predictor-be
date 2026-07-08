@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -87,22 +87,17 @@ def health_check():
 # Auth
 @app.post("/signup")
 async def signup(data: UserSignup, db: AsyncSession = Depends(get_db)):
-    result= await db.execute(select(User).filter(User.email == data.email))
+    result = await db.execute(select(User).filter(User.email == data.email))
     existing = result.scalars().first()
 
     if existing:
         return JSONResponse(status_code=400, content={"error": "Email already registered"})
 
-
-    # Convert email to lowercase to prevent bypass tricks (e.g., Admin@test.com)
-    email_lower = data.email.lower()
-    
-    # If the email contains the word 'admin', make them an admin. Otherwise, make them a normal user.
-    if "admin" in email_lower:
-        assigned_role = "admin"
-    else:
-        assigned_role = "user"
-    user = User(email=data.email, hashed_password=hash_password(data.password))
+    user = User(
+        email=data.email,
+        hashed_password=hash_password(data.password)
+        # role intentionally omitted — always defaults to "user" per the model
+    )
     db.add(user)
     await db.commit()
     return {"message": "User created successfully"}

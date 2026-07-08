@@ -4,11 +4,34 @@ from sqlalchemy.orm import relationship
 from datetime import datetime, date as py_date
 from config.database import Base
 
+
+class PredictionInput(Base):
+    __tablename__ = "prediction_inputs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    age = Column(Integer, nullable=False)
+    weight = Column(Float, nullable=False)      # in kg
+    height = Column(Float, nullable=False)      # in cm
+    is_smoker = Column(Boolean, default=False)
+    occupation = Column(String, nullable=False)
+    income_lpa = Column(Float, nullable=False)
+    city = Column(String, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="prediction_inputs")
+    prediction_log = relationship("PredictionLog", back_populates="input", uselist=False)
+
+
 class PredictionLog(Base):
     __tablename__ = "prediction_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    input_id = Column(Integer, ForeignKey("prediction_inputs.id"), nullable=True)
+
     income_lpa = Column(Float)
     occupation = Column(String)
     bmi = Column(Float)
@@ -20,6 +43,7 @@ class PredictionLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="predictions")
+    input = relationship("PredictionInput", back_populates="prediction_log")
 
 
 class User(Base):
@@ -32,6 +56,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     predictions = relationship("PredictionLog", back_populates="user")
+    prediction_inputs = relationship("PredictionInput", back_populates="user")
 
 
 
