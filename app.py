@@ -7,7 +7,7 @@ import pandas as pd
 
 
 
-from schema.user_input import UserInput, PaymentCreate, StepBatch
+from schema.user_input import UserInput, PaymentCreate, StepBatch, ContactUsCreate
 from ml_model.predict import predict_and_explain, MODEL_VERSION, CompareRequest
 from schema.role import RoleUpdate
 from schema.prediction_response import PredictionResponse
@@ -94,7 +94,9 @@ async def signup(data: UserSignup, db: AsyncSession = Depends(get_db)):
         return JSONResponse(status_code=400, content={"error": "Email already registered"})
 
     user = User(
+        full_name=data.full_name,
         email=data.email,
+        phone_no=data.phone_no,
         hashed_password=hash_password(data.password)
         # role intentionally omitted — always defaults to "user" per the model
     )
@@ -135,9 +137,11 @@ async def require_admin(current_user: User = Depends(get_current_user)):
 @app.get("/me")
 async def read_current_user(current_user: User = Depends(get_current_user)):
     return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "role": current_user.role
+        "id":current_user.id,
+        "full_name":current_user.full_name,
+        "email":current_user.email,
+        "phone_no":current_phone_no,
+        "role":current_user.role
     }
 
 
@@ -527,3 +531,29 @@ async def get_my_steps(
         .order_by(StepLog.date.desc())
     )
     return result.scalars().all()
+
+#contact us
+# Public — anyone can submit, no login required
+@app.post("/contact-us")
+async def submit_contact_form(data: ContactUsCreate, db: AsyncSession = Depends(get_db)):
+    contact = ContactUs(
+        name=data.name,
+        email=data.email,
+        phone_no=data.phone_no,
+        subject=data.subject,
+        message=data.message
+    )
+    db.add(contact)
+    await db.commit()
+    return {"message": "Your message has been submitted successfully"}
+
+
+# Admin-only — view all submissions
+@app.get("/admin/contact-us")
+async def get_all_contact_submissions(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    result = await db.execute(select(ContactUs).order_by(ContactUs.created_at.desc()))
+    submissions = result.scalars().all()
+    return submissions

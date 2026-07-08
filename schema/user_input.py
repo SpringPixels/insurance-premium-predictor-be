@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, EmailStr
 from typing import Literal, Annotated, Optional
 from config.city_tier import tier_1_cities, tier_2_cities
 
@@ -81,3 +81,11 @@ class PaymentCreate(BaseModel):
 class StepBatch(BaseModel):
     steps: int
     date: Optional[date] = None  # defaults to today if not sen
+
+class ContactUsCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone_no: str
+    subject: str
+    message: str
+    

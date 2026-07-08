@@ -50,7 +50,9 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
+    phone_no =Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user")  # "user" or "admin"
     is_active = Column(Boolean, default=True)
@@ -90,3 +92,16 @@ class StepLog(Base):
     recorded_at = Column(DateTime, default=datetime.utcnow)  # when batch was synced
     
     date = Column(Date, default=py_date.today) # day the steps belong to
+
+
+
+class ContactUs(Base):
+    __tablename__ = "contact_us"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    phone_no = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
