@@ -117,8 +117,8 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
     result = await db.execute(
         select(func.sum(Payment.amount)).filter(Payment.status == PaymentStatus.SUCCEEDED)
     )
-    total_paise = result.scalar() or 0
-    total_revenue = total_paise / 100
+    total_amount = result.scalar() or 0
+    total_revenue = float(total_amount)
 
     result = await db.execute(select(func.count(User.id)))
     total_users = result.scalar() or 0
