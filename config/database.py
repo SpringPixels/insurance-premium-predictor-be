@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/insurance_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:7439466632@db:5432/insurance_db")
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = async_sessionmaker(expire_on_commit=False, bind=engine)
