@@ -32,3 +32,9 @@ async def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+async def require_paid_user(current_user: User = Depends(get_current_user)):
+    if not current_user.is_paid:
+        raise HTTPException(status_code=403, detail="Active subscription required to access this feature.")
+    return current_user
+

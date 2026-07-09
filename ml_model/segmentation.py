@@ -72,22 +72,42 @@ def train_segments(df: pd.DataFrame, n_clusters: int = 3):
 
 
 def predict_segment(user_input: dict) -> dict:
+    import os
+    # Load KMeans model for segment label
     kmeans = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
     label_map = joblib.load(LABEL_MAP_PATH)
 
     df = pd.DataFrame([user_input])
-    df = _encode(df)
-    X = df[FEATURE_COLUMNS]
+    df_encoded = _encode(df)
+    X = df_encoded[FEATURE_COLUMNS]
     X_scaled = scaler.transform(X)
 
     cluster_id = int(kmeans.predict(X_scaled)[0])
     label = label_map.get(cluster_id, "Moderate Risk")
-    plan = WORKOUT_PLANS[label]
+    
+    # Check if the new Activity ML model exists
+    activity_model_path = "ml_model/artifacts/activity_recommender.pkl"
+    activity_scaler_path = "ml_model/artifacts/activity_scaler.pkl"
+    activity_goals_path = "ml_model/artifacts/activity_goals.pkl"
+    
+    if os.path.exists(activity_model_path) and os.path.exists(activity_scaler_path) and os.path.exists(activity_goals_path):
+        clf = joblib.load(activity_model_path)
+        clf_scaler = joblib.load(activity_scaler_path)
+        goals_map = joblib.load(activity_goals_path)
+        
+        X_clf_scaled = clf_scaler.transform(X)
+        recommended_activity = clf.predict(X_clf_scaled)[0]
+        goal = goals_map.get(recommended_activity, "Improve overall health")
+    else:
+        # Fallback to static rules if model hasn't been trained yet
+        plan = WORKOUT_PLANS[label]
+        recommended_activity = plan["activity"]
+        goal = plan["goal"]
 
     return {
         "cluster_id": cluster_id,
         "segment_label": label,
-        "recommended_activity": plan["activity"],
-        "goal": plan["goal"],
+        "recommended_activity": recommended_activity,
+        "goal": goal,
     }

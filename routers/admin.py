@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime as dt_module
 
 from schema.admin_dashboard import AdminDashboardResponse, RevenuePoint
-from schema.role import RoleUpdate
+from schema.role import RoleUpdate, StatusUpdate
 from config.database import get_db
 from ml_model.db_models import User, PredictionLog, Payment, PaymentStatus, ContactUs
 from dependencies import require_admin
@@ -48,7 +48,7 @@ async def get_all_users(
 ):
     result = await db.execute(select(User))
     users = result.scalars().all()
-    return [{"id": u.id, "email": u.email, "role": u.role} for u in users]
+    return [{"id": u.id, "email": u.email, "role": u.role, "is_active": u.is_active} for u in users]
 
 @router.patch("/admin/users/{user_id}/role")
 async def update_user_role(
@@ -71,6 +71,29 @@ async def update_user_role(
     await db.refresh(user)
 
     return {"message": f"User {user.email} role updated to {user.role}"}
+
+@router.patch("/admin/users/{user_id}/status")
+async def update_user_status(
+    user_id: int,
+    payload: StatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot change your own status")
+
+    user.is_active = payload.is_active
+    await db.commit()
+    await db.refresh(user)
+
+    status_str = "activated" if user.is_active else "deactivated"
+    return {"message": f"User {user.email} has been {status_str}"}
 
 @router.delete("/admin/users/{user_id}")
 async def delete_user(

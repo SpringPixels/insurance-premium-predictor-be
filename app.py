@@ -37,24 +37,36 @@ app.add_middleware(
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """Return all HTTP errors as { detail: '...' } JSON consistently."""
+    """Return all HTTP errors as { detail: '...' } JSON consistently, supporting dictionary details for field errors."""
+    if isinstance(exc.detail, dict):
+        # If detail is already a dict, just wrap it if it doesn't match our format, or return as is.
+        content = exc.detail
+        if "detail" not in content:
+            content = {"detail": "An error occurred", "errors": content}
+    else:
+        content = {"detail": exc.detail or "An error occurred."}
+        
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail or "An error occurred."},
+        content=content,
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Convert Pydantic validation errors into readable messages."""
-    messages = []
+    """Convert Pydantic validation errors into a structured errors dictionary."""
+    errors_dict = {}
     for error in exc.errors():
         field = " → ".join(str(loc) for loc in error.get("loc", [])[1:])  # skip 'body'
         msg = error.get("msg", "Invalid value")
-        messages.append(f"{field}: {msg}" if field else msg)
-    detail = "; ".join(messages) if messages else "Invalid request data."
+        if field:
+            errors_dict[field] = msg
+            
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": detail},
+        content={
+            "detail": "Invalid request data. Please check your inputs.",
+            "errors": errors_dict
+        },
     )
 
 @app.exception_handler(Exception)

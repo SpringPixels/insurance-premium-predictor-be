@@ -127,4 +127,5 @@ class ActivityLog(Base):
     date = Column(Date, default=py_date.today)
     completed = Column(Boolean, default=True)
     activity_type = Column(String, nullable=True)  # e.g. "Brisk walking", pulled from their segment plan
+    is_recommended = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

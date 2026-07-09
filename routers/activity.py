@@ -7,7 +7,7 @@ from typing import List
 from schema.activity import StepBatch, StepLogResponse, ActivityCheckIn, StreakResponse, ActivityLogResponse, StandardResponse
 from config.database import get_db
 from ml_model.db_models import User, StepLog, ActivityLog
-from dependencies import get_current_user
+from dependencies import require_paid_user
 
 router = APIRouter(tags=["activity"])
 
@@ -15,7 +15,7 @@ router = APIRouter(tags=["activity"])
 async def log_steps(
     payload: StepBatch,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_paid_user)
 ):
     target_date = payload.date or date.today()
 
@@ -45,7 +45,7 @@ async def log_steps(
 @router.get("/steps/today", response_model=StepLogResponse)
 async def get_today_steps(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_paid_user)
 ):
     result = await db.execute(
         select(StepLog).filter(
@@ -59,7 +59,7 @@ async def get_today_steps(
 @router.get("/steps/me", response_model=List[StepLogResponse])
 async def get_my_steps(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_paid_user)
 ):
     result = await db.execute(
         select(StepLog)
@@ -72,23 +72,22 @@ async def get_my_steps(
     return [{"date": log.date, "total_steps": log.steps} for log in logs]
 
 @router.post("/activity/checkin", response_model=StandardResponse)
-async def check_in_activity(data: ActivityCheckIn, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def check_in_activity(data: ActivityCheckIn, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_paid_user)):
     today = date.today()
 
-    result = await db.execute(
-        select(ActivityLog).filter(ActivityLog.user_id == current_user.id, ActivityLog.date == today)
+    log = ActivityLog(
+        user_id=current_user.id, 
+        date=today, 
+        completed=True, 
+        activity_type=data.activity_type,
+        is_recommended=data.is_recommended
     )
-    existing = result.scalars().first()
-    if existing:
-        return {"message": "Already checked in today"}
-
-    log = ActivityLog(user_id=current_user.id, date=today, completed=True, activity_type=data.activity_type)
     db.add(log)
     await db.commit()
     return {"message": "Checked in for today"}
 
 @router.get("/activity/streak", response_model=StreakResponse)
-async def get_streak(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_streak(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_paid_user)):
     result = await db.execute(
         select(ActivityLog).filter(ActivityLog.user_id == current_user.id).order_by(ActivityLog.date.desc())
     )
@@ -133,3 +132,45 @@ async def get_streak(db: AsyncSession = Depends(get_db), current_user: User = De
         last_7_days=last_7,
         message=message,
     )
+
+from schema.activity import ActivityHistoryItem
+@router.get("/activity/history", response_model=List[ActivityHistoryItem])
+async def get_activity_history(
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(require_paid_user)
+):
+    result = await db.execute(
+        select(ActivityLog)
+        .filter(ActivityLog.user_id == current_user.id)
+        .order_by(ActivityLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    logs = result.scalars().all()
+    return logs
+
+from sqlalchemy import func
+@router.get("/activity/suggestions", response_model=List[str])
+async def get_activity_suggestions(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_paid_user)):
+    # Get the user's top 3 most frequent activities from their history
+    result = await db.execute(
+        select(ActivityLog.activity_type, func.count(ActivityLog.id).label('count'))
+        .filter(ActivityLog.user_id == current_user.id)
+        .group_by(ActivityLog.activity_type)
+        .order_by(func.count(ActivityLog.id).desc())
+        .limit(3)
+    )
+    
+    top_activities = [row[0] for row in result.all() if row[0]]
+    
+    # Pad with defaults if they don't have enough history
+    defaults = ['30-min Walk', 'Yoga', '15-min Stretch']
+    for default in defaults:
+        if len(top_activities) >= 3:
+            break
+        if default not in top_activities:
+            top_activities.append(default)
+            
+    return top_activities
