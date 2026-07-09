@@ -56,6 +56,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user")  # "user" or "admin"
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     predictions = relationship("PredictionLog", back_populates="user")
     prediction_inputs = relationship("PredictionInput", back_populates="user")
@@ -104,4 +105,15 @@ class ContactUs(Base):
     phone_no = Column(String, nullable=False)
     subject = Column(String, nullable=False)
     message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date = Column(Date, default=py_date.today)
+    completed = Column(Boolean, default=True)
+    activity_type = Column(String, nullable=True)  # e.g. "Brisk walking", pulled from their segment plan
     created_at = Column(DateTime, default=datetime.utcnow)

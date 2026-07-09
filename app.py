@@ -7,13 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 
 
-
+from schema.admin_dashboard import AdminDashboardResponse, RevenuePoint
 from schema.user_input import UserInput, PaymentCreate, StepBatch, ContactUsCreate
 from ml_model.predict import predict_and_explain, MODEL_VERSION, CompareRequest
+from ml_model.segmentation import train_segments, predict_segment
+from schema.segment import SegmentResponse, TrainSegmentsResponse
 from schema.role import RoleUpdate
 from schema.prediction_response import PredictionResponse
 from config.database import Base, engine, get_db
-from ml_model.db_models import PredictionLog, ContactUs
+from ml_model.db_models import PredictionLog, ContactUs, ActivityLog, Payment, PaymentStatus
+from schema.activity import ActivityCheckIn, ActivityLogResponse, StreakResponse
+from datetime import date as dt, timedelta
 from contextlib import asynccontextmanager
 
 from fastapi.security import OAuth2PasswordBearer
@@ -29,7 +33,7 @@ from reportlab.pdfgen import canvas
 import io
 import os
 
-from sqlalchemy import func
+from sqlalchemy import func, extract
 
 import hmac, hashlib
 
@@ -566,3 +570,176 @@ async def get_all_contact_submissions(
     result = await db.execute(select(ContactUs).order_by(ContactUs.created_at.desc()))
     submissions = result.scalars().all()
     return submissions
+
+
+# for customer segmentation
+@app.post("/segment/train", response_model=TrainSegmentsResponse)
+async def train_segmentation_model(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    result = await db.execute(select(PredictionLog))
+    logs = result.scalars().all()
+
+    if len(logs) < 10:
+        raise HTTPException(status_code=400, detail="Not enough data to train segments (need 10+ records)")
+
+    df = pd.DataFrame([{
+        "income_lpa": log.income_lpa,
+        "bmi": log.bmi,
+        "age_group": log.age_group,
+        "lifestyle_risk": log.lifestyle_risk,
+        "city_tier": log.city_tier,
+    } for log in logs])
+
+    result = train_segments(df)
+    return result
+
+
+@app.post("/segment/predict", response_model=SegmentResponse)
+async def get_user_segment(data: dict, current_user: User = Depends(get_current_user)):
+    try:
+        return predict_segment(data)
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Segmentation model not trained yet")
+
+
+
+# For activity
+@app.post("/activity/checkin")
+async def check_in_activity(data: ActivityCheckIn, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    today = date.today()
+
+    result = await db.execute(
+        select(ActivityLog).filter(ActivityLog.user_id == current_user.id, ActivityLog.date == today)
+    )
+    existing = result.scalars().first()
+    if existing:
+        return {"message": "Already checked in today"}
+
+    log = ActivityLog(user_id=current_user.id, date=today, completed=True, activity_type=data.activity_type)
+    db.add(log)
+    await db.commit()
+    return {"message": "Checked in for today"}
+
+
+@app.get("/activity/streak", response_model=StreakResponse)
+async def get_streak(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    result = await db.execute(
+        select(ActivityLog).filter(ActivityLog.user_id == current_user.id).order_by(ActivityLog.date.desc())
+    )
+    logs = result.scalars().all()
+    log_dates = {log.date for log in logs}
+
+    # current streak: count back from today
+    current_streak = 0
+    day = date.today()
+    while day in log_dates:
+        current_streak += 1
+        day -= timedelta(days=1)
+
+    # longest streak overall
+    longest_streak = 0
+    streak = 0
+    sorted_dates = sorted(log_dates)
+    prev = None
+    for d in sorted_dates:
+        if prev and (d - prev).days == 1:
+            streak += 1
+        else:
+            streak = 1
+        longest_streak = max(longest_streak, streak)
+        prev = d
+
+    last_7 = [
+        ActivityLogResponse(date=log.date, completed=log.completed, activity_type=log.activity_type)
+        for log in logs[:7]
+    ]
+
+    if current_streak >= 7:
+        message = f"{current_streak} days strong — great consistency!"
+    elif current_streak >= 3:
+        message = f"{current_streak} days in a row, keep going!"
+    elif current_streak == 0:
+        message = "No check-in yet today — get moving!"
+    else:
+        message = f"Day {current_streak} — nice start!"
+
+    return StreakResponse(
+        current_streak=current_streak,
+        longest_streak=longest_streak,
+        last_7_days=last_7,
+        message=message,
+    )
+
+# for admin_dashboard
+@app.get("/admin/dashboard", response_model=AdminDashboardResponse)
+async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    # --- Total revenue (only successful payments, stored in paise) ---
+    result = await db.execute(
+        select(func.sum(Payment.amount)).filter(Payment.status == PaymentStatus.SUCCEEDED)
+    )
+    total_paise = result.scalar() or 0
+    total_revenue = total_paise / 100
+
+    # --- Total users ---
+    result = await db.execute(select(func.count(User.id)))
+    total_users = result.scalar() or 0
+
+    # --- New users this month ---
+    now = dt.utcnow()
+    result = await db.execute(
+        select(func.count(User.id)).filter(
+            extract('year', User.created_at) == now.year,
+            extract('month', User.created_at) == now.month,
+        )
+    )
+    new_users_this_month = result.scalar() or 0
+
+    # --- Revenue trend: last 6 months ---
+    result = await db.execute(
+        select(Payment.created_at, Payment.amount).filter(Payment.status == PaymentStatus.SUCCEEDED)
+    )
+    payments = result.all()
+
+    monthly_totals: dict[str, float] = {}
+    for created_at, amount in payments:
+        if created_at is None:
+            continue
+        key = created_at.strftime("%Y-%m")
+        monthly_totals[key] = monthly_totals.get(key, 0) + (amount / 100)
+
+    revenue_trend = [
+        RevenuePoint(month=month, amount=round(amt, 2))
+        for month, amt in sorted(monthly_totals.items())
+    ][-6:]
+
+    # --- Segment breakdown: use latest PredictionLog per user, run through trained segmentation model ---
+    result = await db.execute(
+        select(PredictionLog).order_by(PredictionLog.user_id, PredictionLog.created_at.desc())
+    )
+    logs = result.scalars().all()
+
+    seen_users = set()
+    segment_counts = {"Low Risk": 0, "Moderate Risk": 0, "High Risk": 0}
+
+    for log in logs:
+        if log.user_id in seen_users or log.user_id is None:
+            continue
+        seen_users.add(log.user_id)
+        try:
+            seg = predict_segment({
+                "income_lpa": log.income_lpa,
+                "bmi": log.bmi,
+                "age_group": log.age_group,
+                "lifestyle_risk": log.lifestyle_risk,
+                "city_tier": log.city_tier,
+            })
+            segment_counts[seg["segment_label"]] += 1
+        except FileNotFoundError:
+            pass
+
+    return AdminDashboardResponse(
+        total_revenue=round(total_revenue, 2),
+        total_users=total_users,
+        new_users_this_month=new_users_this_month,
+        revenue_trend=revenue_trend,
+        segment_breakdown=segment_counts,
+    )
