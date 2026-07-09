@@ -52,10 +52,21 @@ def analyze_risk(user_data: dict) -> dict:
     risk_rate = float(model.predict(df)[0])
     
     # Renewal multiplier logic:
-    # 1.0 (base) + (risk_rate - 0.2) -> standard multiplier.
-    # We want a high risk rate to heavily multiply the premium.
-    multiplier = 1.0 + (risk_rate - 0.2)
-    multiplier = max(1.0, multiplier)
+    # Baseline threshold shifted to 0.4 (40%) so average risk doesn't immediately increase prices
+    multiplier = 1.0 + (risk_rate - 0.4)
+    
+    # Reward for zero claims
+    if user_data.get('total_claims_amount', 0.0) == 0:
+        multiplier -= 0.15 # 15% discount for claim-free year
+        
+    # Further reward for being active
+    exercises = user_data.get('total_exercises', 0)
+    if exercises > 0:
+        multiplier -= min(0.15, exercises * 0.02) # Up to 15% discount for exercises
+        
+    # Cap the multiplier between 0.5x (50% discount max) and 3.0x (300% penalty max)
+    multiplier = max(0.5, min(multiplier, 3.0))
+    
     
     return {
         "risky_behaviour_rate": round(risk_rate * 100, 1),
