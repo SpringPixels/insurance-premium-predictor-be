@@ -112,10 +112,16 @@ async def get_streak(db: AsyncSession = Depends(get_db), current_user: User = De
         longest_streak = max(longest_streak, streak)
         prev = d
 
-    last_7 = [
-        ActivityLogResponse(date=log.date, completed=log.completed, activity_type=log.activity_type)
-        for log in logs[:7]
-    ]
+    last_7 = []
+    for i in range(6, -1, -1):
+        d = date.today() - timedelta(days=i)
+        last_7.append(
+            ActivityLogResponse(
+                date=d, 
+                completed=(d in log_dates),
+                activity_type=None
+            )
+        )
 
     if current_streak >= 7:
         message = f"{current_streak} days strong — great consistency!"

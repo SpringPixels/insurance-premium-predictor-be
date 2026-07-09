@@ -3,12 +3,13 @@ from sqlalchemy import select, func, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime as dt_module
 
-from schema.admin_dashboard import AdminDashboardResponse, RevenuePoint
+from schema.admin_dashboard import AdminDashboardResponse, RevenuePoint, PaidMember, RiskAnalysisResponse, ClaimCreate, ClaimResponse
 from schema.role import RoleUpdate, StatusUpdate
 from config.database import get_db
-from ml_model.db_models import User, PredictionLog, Payment, PaymentStatus, ContactUs
+from ml_model.db_models import User, PredictionLog, Payment, PaymentStatus, ContactUs, ActivityLog, Claim
 from dependencies import require_admin
 from ml_model.segmentation import predict_segment
+from ml_model.risk_analysis import analyze_risk
 
 router = APIRouter(tags=["admin"])
 
@@ -132,21 +133,37 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
     new_users_this_month = result.scalar() or 0
 
     result = await db.execute(
-        select(Payment.created_at, Payment.amount).filter(Payment.status == PaymentStatus.SUCCEEDED)
+        select(Payment).filter(Payment.status == PaymentStatus.SUCCEEDED)
     )
-    payments = result.all()
+    payments_objs = result.scalars().all()
 
     monthly_totals: dict[str, float] = {}
-    for created_at, amount in payments:
-        if created_at is None:
+    paid_members_dict = {}
+    
+    for p in payments_objs:
+        if p.created_at is None:
             continue
-        key = created_at.strftime("%Y-%m")
-        monthly_totals[key] = monthly_totals.get(key, 0) + (amount / 100)
+        key = p.created_at.strftime("%Y-%m")
+        amt = p.amount / 100
+        monthly_totals[key] = monthly_totals.get(key, 0) + amt
+        
+        if p.user_id not in paid_members_dict:
+            paid_members_dict[p.user_id] = 0.0
+        paid_members_dict[p.user_id] += amt
 
     revenue_trend = [
         RevenuePoint(month=month, amount=round(amt, 2))
         for month, amt in sorted(monthly_totals.items())
     ][-6:]
+    
+    paid_members = []
+    if paid_members_dict:
+        paid_users_result = await db.execute(select(User).filter(User.id.in_(list(paid_members_dict.keys()))))
+        paid_users = paid_users_result.scalars().all()
+        paid_members = [
+            PaidMember(user_id=u.id, email=u.email, total_paid=round(paid_members_dict[u.id], 2))
+            for u in paid_users
+        ]
 
     result = await db.execute(
         select(PredictionLog).order_by(PredictionLog.user_id, PredictionLog.created_at.desc())
@@ -180,7 +197,80 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
         new_users_this_month=new_users_this_month,
         revenue_trend=revenue_trend,
         segment_breakdown=segment_counts,
+        paid_members=paid_members,
     )
+
+@router.get("/admin/users/{user_id}/analysis", response_model=RiskAnalysisResponse)
+async def get_user_risk_analysis(user_id: int, db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    # 1. Get user and their latest prediction log
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    pred_result = await db.execute(
+        select(PredictionLog).filter(PredictionLog.user_id == user_id).order_by(PredictionLog.created_at.desc())
+    )
+    latest_pred = pred_result.scalars().first()
+    
+    base_premium = latest_pred.predicted_premium if latest_pred else 0.0
+    
+    # 2. Get total exercises completed in the last 30 days
+    now = dt_module.utcnow()
+    thirty_days_ago = now.date() - __import__('datetime').timedelta(days=30)
+    act_result = await db.execute(
+        select(func.count(ActivityLog.id)).filter(
+            ActivityLog.user_id == user_id, 
+            ActivityLog.completed == True,
+            ActivityLog.date >= thirty_days_ago
+        )
+    )
+    total_exercises = act_result.scalar() or 0
+    
+    # 3. Get all claims
+    claim_result = await db.execute(select(Claim).filter(Claim.user_id == user_id).order_by(Claim.created_at.desc()))
+    claims = claim_result.scalars().all()
+    total_claims_amount = sum(c.amount for c in claims)
+    
+    # 4. Run Risk Analysis Model
+    user_data = {
+        'age': user.age or 30,
+        'bmi': latest_pred.bmi if latest_pred else 22.0,
+        'income_lpa': user.income_lpa or 10.0,
+        'city_tier': latest_pred.city_tier if latest_pred else 2,
+        'lifestyle_risk': latest_pred.lifestyle_risk if latest_pred else "Moderate",
+        'total_exercises': total_exercises,
+        'total_claims_amount': total_claims_amount
+    }
+    
+    analysis = analyze_risk(user_data)
+    renewal_premium = base_premium * analysis['renewal_multiplier']
+    
+    return RiskAnalysisResponse(
+        risky_behaviour_rate=analysis['risky_behaviour_rate'],
+        renewal_multiplier=analysis['renewal_multiplier'],
+        base_premium=base_premium,
+        predicted_renewal_premium=round(renewal_premium, 2),
+        total_exercises=total_exercises,
+        total_claims_amount=total_claims_amount,
+        claims=[ClaimResponse(id=c.id, amount=c.amount, description=c.description, date=c.date) for c in claims]
+    )
+
+@router.post("/admin/users/{user_id}/claims", response_model=ClaimResponse)
+async def add_user_claim(user_id: int, payload: ClaimCreate, db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    result = await db.execute(select(User).filter(User.id == user_id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    claim = Claim(
+        user_id=user_id,
+        amount=payload.amount,
+        description=payload.description
+    )
+    db.add(claim)
+    await db.commit()
+    await db.refresh(claim)
+    return ClaimResponse(id=claim.id, amount=claim.amount, description=claim.description, date=claim.date)
 
 @router.get("/admin/contact-us")
 async def get_all_contact_submissions(

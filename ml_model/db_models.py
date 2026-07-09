@@ -129,3 +129,13 @@ class ActivityLog(Base):
     activity_type = Column(String, nullable=True)  # e.g. "Brisk walking", pulled from their segment plan
     is_recommended = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class Claim(Base):
+    __tablename__ = "claims"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    description = Column(String, nullable=False)
+    date = Column(Date, default=py_date.today)
+    created_at = Column(DateTime, default=datetime.utcnow)
