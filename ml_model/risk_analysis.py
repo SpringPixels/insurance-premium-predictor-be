@@ -51,12 +51,29 @@ def analyze_risk(user_data: dict) -> dict:
     
     risk_rate = float(model.predict(df)[0])
     
+    claims_amount = user_data.get('total_claims_amount', 0.0)
+    base_premium = user_data.get('base_premium', 0.0)
+    exercises = user_data.get('total_exercises', 0)
+    
+    # Adjust risk rate manually to visually reflect claims
+    if claims_amount > 0:
+        risk_rate += 0.15 # base penalty for any claims
+        if base_premium > 0:
+            claim_ratio = claims_amount / base_premium
+            risk_rate += min(0.50, claim_ratio * 0.15)
+            
+    # Reward risk rate for being active
+    if exercises > 0:
+        risk_rate -= min(0.20, exercises * 0.01)
+        
+    risk_rate = max(0.01, min(risk_rate, 0.99))
+    
     # Renewal multiplier logic:
     # Baseline threshold shifted to 0.4 (40%) so average risk doesn't immediately increase prices
     multiplier = 1.0 + (risk_rate - 0.4)
     
     # Reward for zero claims
-    if user_data.get('total_claims_amount', 0.0) == 0:
+    if claims_amount == 0:
         multiplier -= 0.15 # 15% discount for claim-free year
         
     # Further reward for being active
