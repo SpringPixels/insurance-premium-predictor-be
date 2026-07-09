@@ -139,3 +139,13 @@ class Claim(Base):
     description = Column(String, nullable=False)
     date = Column(Date, default=py_date.today)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class PricingSettings(Base):
+    __tablename__ = "pricing_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    base_flat_fee = Column(Integer, default=5000)
+    low_penalty = Column(Integer, default=0)
+    medium_penalty = Column(Integer, default=5000)
+    high_penalty = Column(Integer, default=13000)
+    very_high_penalty = Column(Integer, default=25000)

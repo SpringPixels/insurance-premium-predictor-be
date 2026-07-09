@@ -240,7 +240,8 @@ async def get_user_risk_analysis(user_id: int, db: AsyncSession = Depends(get_db
         'city_tier': latest_pred.city_tier if latest_pred else 2,
         'lifestyle_risk': latest_pred.lifestyle_risk if latest_pred else "Moderate",
         'total_exercises': total_exercises,
-        'total_claims_amount': total_claims_amount
+        'total_claims_amount': total_claims_amount,
+        'base_premium': base_premium
     }
     
     analysis = analyze_risk(user_data)
@@ -280,3 +281,70 @@ async def get_all_contact_submissions(
     result = await db.execute(select(ContactUs).order_by(ContactUs.created_at.desc()))
     submissions = result.scalars().all()
     return submissions
+
+class PremiumUpdate(BaseModel):
+    base_premium: float
+
+@router.patch("/admin/users/{user_id}/premium")
+async def update_base_premium(
+    user_id: int, 
+    payload: PremiumUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin)
+):
+    result = await db.execute(
+        select(PredictionLog)
+        .filter(PredictionLog.user_id == user_id)
+        .order_by(PredictionLog.created_at.desc())
+    )
+    latest_pred = result.scalars().first()
+    
+    if not latest_pred:
+        raise HTTPException(status_code=400, detail="User does not have an AI prediction yet. They must run the calculator first.")
+        
+    latest_pred.predicted_premium = int(payload.base_premium)
+    await db.commit()
+    return {"message": "Base premium updated successfully", "new_premium": latest_pred.predicted_premium}
+
+from ml_model.db_models import PricingSettings
+
+class PricingSettingsUpdate(BaseModel):
+    base_flat_fee: int
+    low_penalty: int
+    medium_penalty: int
+    high_penalty: int
+    very_high_penalty: int
+
+@router.get("/admin/settings/pricing")
+async def get_pricing_settings(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(PricingSettings).limit(1))
+    settings = result.scalar()
+    if not settings:
+        settings = PricingSettings()
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+    return settings
+
+@router.patch("/admin/settings/pricing")
+async def update_pricing_settings(
+    payload: PricingSettingsUpdate, 
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(PricingSettings).limit(1))
+    settings = result.scalar()
+    if not settings:
+        settings = PricingSettings()
+        db.add(settings)
+    
+    settings.base_flat_fee = payload.base_flat_fee
+    settings.low_penalty = payload.low_penalty
+    settings.medium_penalty = payload.medium_penalty
+    settings.high_penalty = payload.high_penalty
+    settings.very_high_penalty = payload.very_high_penalty
+    await db.commit()
+    return {"message": "Settings updated"}

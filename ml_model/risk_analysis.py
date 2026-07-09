@@ -64,8 +64,20 @@ def analyze_risk(user_data: dict) -> dict:
     if exercises > 0:
         multiplier -= min(0.15, exercises * 0.02) # Up to 15% discount for exercises
         
+    claims_amount = user_data.get('total_claims_amount', 0.0)
+    base_premium = user_data.get('base_premium', 0.0)
+    
+    if claims_amount > 0:
+        # If they claimed more than what they paid, add a huge penalty red flag
+        if base_premium > 0 and claims_amount > base_premium:
+            multiplier += 0.5 + (claims_amount / base_premium) * 0.1
+            
+        # Ensure it never goes below 1.0 if they have a claim
+        multiplier = max(1.0, multiplier)
+        
     # Cap the multiplier between 0.5x (50% discount max) and 3.0x (300% penalty max)
     multiplier = max(0.5, min(multiplier, 3.0))
+    
     
     
     return {

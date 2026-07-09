@@ -14,16 +14,31 @@ from config.database import get_db
 from ml_model.db_models import PredictionLog, User
 from dependencies import get_current_user
 
-def run_prediction(user_input):
-    res = predict_and_explain(user_input)
-    PREMIUM_MAP = {
-        "Low": 5000,
-        "Medium": 10000,
-        "High": 18000,
-        "Very High": 30000
+async def get_pricing_settings(db: AsyncSession):
+    from ml_model.db_models import PricingSettings
+    result = await db.execute(select(PricingSettings).limit(1))
+    settings = result.scalar()
+    if not settings:
+        settings = PricingSettings()
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+    return {
+        "base_flat_fee": settings.base_flat_fee,
+        "premium_map": {
+            "Low": settings.low_penalty,
+            "Medium": settings.medium_penalty,
+            "High": settings.high_penalty,
+            "Very High": settings.very_high_penalty
+        }
     }
+
+async def run_prediction(user_input, db: AsyncSession):
+    res = predict_and_explain(user_input)
+    settings = await get_pricing_settings(db)
+    base_premium = int(settings['base_flat_fee'] + (user_input.get('age', 30) * 100) + (user_input.get('bmi', 22.0) * 50) + (user_input.get('income_lpa', 10.0) * 20))
     cat = res["prediction_results"]["predicted_category"]
-    res["predicted_premium"] = PREMIUM_MAP[cat]
+    res["predicted_premium"] = base_premium + settings['premium_map'].get(cat, 0)
     return res
 
 router = APIRouter(tags=["predictions"])
@@ -46,18 +61,16 @@ async def predict_premium_with_explanation(
     try:
         result = predict_and_explain(user_input)
 
-        PREMIUM_MAP = {
-            "Low": 5000,
-            "Medium": 10000,
-            "High": 18000,
-            "Very High": 30000
-        }
+        settings = await get_pricing_settings(db)
+        base_premium = int(settings['base_flat_fee'] + (data.age * 100) + (data.bmi * 50) + (data.income_lpa * 20))
         chosen_category = result["prediction_results"]["predicted_category"]
+        final_premium = base_premium + settings['premium_map'].get(chosen_category, 0)
+        
         log = PredictionLog(
             **user_input,
             user_id=current_user.id,
             predicted_category=chosen_category,
-            predicted_premium=PREMIUM_MAP[chosen_category]
+            predicted_premium=final_premium
         )
 
         current_user.age = data.age
@@ -79,7 +92,7 @@ async def predict_premium_with_explanation(
             model_metadata=result.get("model_metadata"),
             prediction_results=result.get("prediction_results"),
             explainable_ai=result.get("explainable_ai"),
-            predicted_premium=PREMIUM_MAP[chosen_category]
+            predicted_premium=final_premium
         )
 
     except KeyError as e:
@@ -153,12 +166,13 @@ async def delete_prediction(
 @router.post("/predict/compare", response_model=CompareResponse)
 async def compare_predictions(
     payload: CompareRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     try:
         # Pydantic v2 `.model_dump()` is used here
-        result_a = run_prediction(payload.scenario_a.model_dump())
-        result_b = run_prediction(payload.scenario_b.model_dump())
+        result_a = await run_prediction(payload.scenario_a.model_dump(), db)
+        result_b = await run_prediction(payload.scenario_b.model_dump(), db)
 
         difference = result_a["predicted_premium"] - result_b["predicted_premium"]
 
