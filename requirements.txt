@@ -63,5 +63,4 @@ python-jose[cryptography]
 python-multipart
 pydantic[email]
 reportlab
-razorpay
 greenlet

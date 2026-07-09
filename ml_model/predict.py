@@ -2,8 +2,7 @@ import shap
 import joblib
 import pandas as pd
 from pydantic import BaseModel
-from schema.user_input import UserInput
-
+from schema.predictions import UserInput
 
 
 # import the ml model
