@@ -60,6 +60,14 @@ async def predict_premium_with_explanation(
             predicted_premium=PREMIUM_MAP[chosen_category]
         )
 
+        current_user.age = data.age
+        current_user.weight = data.weight
+        current_user.height = data.height
+        current_user.is_smoker = data.smoker
+        current_user.occupation = data.occupation
+        current_user.income_lpa = data.income_lpa
+        current_user.city = data.city
+        db.add(current_user)
         db.add(log)
         await db.commit()
 
@@ -70,7 +78,8 @@ async def predict_premium_with_explanation(
             class_probabilities=result["prediction_results"]["all_class_probabilities"],
             model_metadata=result.get("model_metadata"),
             prediction_results=result.get("prediction_results"),
-            explainable_ai=result.get("explainable_ai")
+            explainable_ai=result.get("explainable_ai"),
+            predicted_premium=PREMIUM_MAP[chosen_category]
         )
 
     except Exception as e:

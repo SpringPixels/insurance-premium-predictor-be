@@ -12,6 +12,15 @@ class UserOut(BaseModel):
     email: EmailStr
     phone_no: str
     role: str
+    
+    is_paid: bool = False
+    age: int | None = None
+    weight: float | None = None
+    height: float | None = None
+    is_smoker: bool | None = None
+    occupation: str | None = None
+    income_lpa: float | None = None
+    city: str | None = None
 
 class Token(BaseModel):
     access_token: str

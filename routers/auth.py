@@ -57,5 +57,13 @@ async def read_current_user(current_user: User = Depends(get_current_user)):
         "full_name": current_user.full_name,
         "email": current_user.email,
         "phone_no": current_user.phone_no,
-        "role": current_user.role
+        "role": current_user.role,
+        "is_paid": current_user.is_paid or False,
+        "age": current_user.age,
+        "weight": current_user.weight,
+        "height": current_user.height,
+        "is_smoker": current_user.is_smoker,
+        "occupation": current_user.occupation,
+        "income_lpa": current_user.income_lpa,
+        "city": current_user.city,
     }

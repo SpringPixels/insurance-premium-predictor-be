@@ -56,6 +56,17 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user")  # "user" or "admin"
     is_active = Column(Boolean, default=True)
+    
+    # User Profile Data
+    age = Column(Integer, nullable=True)
+    weight = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    is_smoker = Column(Boolean, nullable=True)
+    occupation = Column(String, nullable=True)
+    income_lpa = Column(Float, nullable=True)
+    city = Column(String, nullable=True)
+    is_paid = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     predictions = relationship("PredictionLog", back_populates="user")

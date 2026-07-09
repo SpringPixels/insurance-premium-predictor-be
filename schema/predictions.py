@@ -85,6 +85,11 @@ class PredictionResponse(BaseModel):
     model_metadata: dict | None = None
     prediction_results: dict | None = None
     explainable_ai: dict | None = None
+    predicted_premium: int = Field(
+        ...,
+        description="The calculated premium amount based on the category",
+        example=18000
+    )
 
 class ScenarioResult(BaseModel):
     model_metadata: dict

@@ -14,6 +14,9 @@ router = APIRouter(tags=["payments"])
 @router.post("/payments/create", response_model=PaymentCreateResponse)
 async def create_payment(data: PaymentCreate, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
+    if current_user.is_paid:
+        raise HTTPException(status_code=400, detail="User has already paid for a premium plan.")
+
     # Mocking successful payment creation
     mock_order_id = f"order_{uuid.uuid4().hex[:14]}"
     mock_payment_id = f"pay_{uuid.uuid4().hex[:14]}"
@@ -26,6 +29,10 @@ async def create_payment(data: PaymentCreate, db: AsyncSession = Depends(get_db)
         status=PaymentStatus.SUCCEEDED
     )
     db.add(payment)
+
+    current_user.is_paid = True
+    db.add(current_user)
+
     await db.commit()
     
     return {"order_id": mock_order_id, "amount": data.amount, "key": "mock_key"}
