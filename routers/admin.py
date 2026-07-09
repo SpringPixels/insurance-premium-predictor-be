@@ -144,7 +144,7 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
         if p.created_at is None:
             continue
         key = p.created_at.strftime("%Y-%m")
-        amt = p.amount / 100
+        amt = float(p.amount)
         monthly_totals[key] = monthly_totals.get(key, 0) + amt
         
         if p.user_id not in paid_members_dict:
