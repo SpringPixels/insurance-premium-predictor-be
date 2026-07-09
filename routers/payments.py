@@ -15,7 +15,13 @@ router = APIRouter(tags=["payments"])
 async def create_payment(data: PaymentCreate, db: AsyncSession = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
     if current_user.is_paid:
-        raise HTTPException(status_code=400, detail="User has already paid for a premium plan.")
+        raise HTTPException(
+            status_code=400,
+            detail="You already have an active premium plan. A second purchase is not required."
+        )
+
+    if data.amount <= 0:
+        raise HTTPException(status_code=422, detail="Payment amount must be greater than zero.")
 
     # Mocking successful payment creation
     mock_order_id = f"order_{uuid.uuid4().hex[:14]}"

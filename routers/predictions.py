@@ -82,8 +82,21 @@ async def predict_premium_with_explanation(
             predicted_premium=PREMIUM_MAP[chosen_category]
         )
 
+    except KeyError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Prediction model returned an unexpected result structure (missing key: {e}). Please try again."
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid input value: {e}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log the full traceback server-side but return a safe message to the client
+        import traceback
+        print(f"[ERROR] /predict/explain failed: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail="The prediction engine encountered an unexpected error. Please try again later."
+        )
 
 @router.get("/predictions/me")
 async def get_my_predictions(
@@ -155,7 +168,9 @@ async def compare_predictions(
             "difference": difference
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        print(f"[ERROR] /predict/compare failed: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Comparison failed due to an internal error. Please try again later.")
 
 @router.get("/predictions/{prediction_id}/pdf")
 async def get_prediction_pdf(

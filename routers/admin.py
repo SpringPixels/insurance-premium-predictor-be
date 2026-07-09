@@ -147,7 +147,9 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
             })
             segment_counts[seg["segment_label"]] += 1
         except FileNotFoundError:
-            pass
+            print("[WARN] Segmentation model file not found — segment_breakdown will be empty.")
+        except Exception as seg_err:
+            print(f"[WARN] Segment prediction failed for log {log.id}: {seg_err}")
 
     return AdminDashboardResponse(
         total_revenue=round(total_revenue, 2),

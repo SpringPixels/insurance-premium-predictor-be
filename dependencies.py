@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError
+from jose import JWTError, ExpiredSignatureError
 
 from config.database import get_db
 from config.security import decode_access_token
@@ -14,14 +14,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     try:
         payload = decode_access_token(token)
         email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token is missing required user information.")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Your session has expired. Please log in again.")
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid authentication token. Please log in again.")
 
     result = await db.execute(select(User).filter(User.email == email))
     user = result.scalars().first()
 
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="The account associated with this token no longer exists.")
     return user
 
 async def require_admin(current_user: User = Depends(get_current_user)):
