@@ -17,7 +17,7 @@ from schema.prediction_response import PredictionResponse
 from config.database import Base, engine, get_db
 from ml_model.db_models import PredictionLog, ContactUs, ActivityLog, Payment, PaymentStatus
 from schema.activity import ActivityCheckIn, ActivityLogResponse, StreakResponse
-from datetime import date as dt, timedelta
+from datetime import datetime as dt_module
 from contextlib import asynccontextmanager
 
 from fastapi.security import OAuth2PasswordBearer
@@ -684,7 +684,7 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
     total_users = result.scalar() or 0
 
     # --- New users this month ---
-    now = dt.utcnow()
+    now = dt_module.utcnow()
     result = await db.execute(
         select(func.count(User.id)).filter(
             extract('year', User.created_at) == now.year,
