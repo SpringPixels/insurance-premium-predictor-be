@@ -13,6 +13,7 @@ class PaidMember(BaseModel):
 
 class AdminDashboardResponse(BaseModel):
     total_revenue: float
+    total_claims: float
     total_users: int
     new_users_this_month: int
     revenue_trend: List[RevenuePoint]

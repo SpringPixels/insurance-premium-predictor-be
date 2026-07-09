@@ -119,7 +119,11 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
         select(func.sum(Payment.amount)).filter(Payment.status == PaymentStatus.SUCCEEDED)
     )
     total_amount = result.scalar() or 0
-    total_revenue = float(total_amount)
+    
+    claims_result = await db.execute(select(func.sum(Claim.amount)))
+    total_claims = claims_result.scalar() or 0
+    
+    total_revenue = float(total_amount) - float(total_claims)
 
     result = await db.execute(select(func.count(User.id)))
     total_users = result.scalar() or 0
@@ -151,6 +155,15 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
         if p.user_id not in paid_members_dict:
             paid_members_dict[p.user_id] = 0.0
         paid_members_dict[p.user_id] += amt
+
+    claims_list_result = await db.execute(select(Claim))
+    claims_objs = claims_list_result.scalars().all()
+    
+    for c in claims_objs:
+        if c.created_at is None:
+            continue
+        key = c.created_at.strftime("%Y-%m")
+        monthly_totals[key] = monthly_totals.get(key, 0) - float(c.amount)
 
     revenue_trend = [
         RevenuePoint(month=month, amount=round(amt, 2))
@@ -194,6 +207,7 @@ async def get_admin_dashboard(db: AsyncSession = Depends(get_db), admin: User = 
 
     return AdminDashboardResponse(
         total_revenue=round(total_revenue, 2),
+        total_claims=round(float(total_claims), 2),
         total_users=total_users,
         new_users_this_month=new_users_this_month,
         revenue_trend=revenue_trend,
